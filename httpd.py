@@ -157,5 +157,4 @@ if __name__ == '__main__':
     parser.add_argument("-r", "--document_root", default=DOCUMENT_ROOT)
     args = parser.parse_args()
     server = HTTPServer(HOST, PORT, args.workers_count, args.document_root)
-    # server = HTTPServer(HOST, PORT, WORKERS_COUNT, DOCUMENT_ROOT)
     server.start()
