@@ -12,6 +12,8 @@ PORT = 8080
 QUEUE_SIZE = 5
 DOCUMENT_ROOT = 'root'
 DEFAULT_FILE = 'index.html'
+WORKERS_COUNT = 5
+TIMEOUT = 60
 
 CONTENT_TYPES = {
     "html": "text/html",
@@ -60,7 +62,7 @@ class HTTPServer:
         for _ in range(self.workers_count):
             while True:
                 client_sock, address = self.server.accept()
-                client_sock.settimeout(60)
+                client_sock.settimeout(TIMEOUT)
                 client_handler = threading.Thread(
                     target=self.handle_client_connection,
                     args=(client_sock,)
@@ -106,7 +108,7 @@ class HTTPRequest:
 
 
 class HTTPResponse:
-    def __init__(self, request: HTTPRequest):
+    def __init__(self, request):
         self.request = request
         self.status = self.get_status()
         self.message = self.get_message()
@@ -133,29 +135,27 @@ class HTTPResponse:
         content_type = CONTENT_TYPES.get(self.request.file_ext, "text/html")
         date_time = datetime.now().strftime("%a, %d %b %Y %H:%M:%S")
         server_name = "MyServer"
-        response = (
-                f"{head} {self.status} {self.message}\r\n" +
-                f"Date: {date_time}\r\n" +
-                f"Server:{server_name}\r\n" +
-                "Connection: close\r\n"
-        ).encode()
-        if self.status == 200:
-            body = self.get_body()
-            content_length = len(body)
-            response += (
-                    f"Content-Length: {content_length}\r\n" +
+        response = f"{head} {self.status} {self.message}\r\n" + \
+                   f"Date: {date_time}\r\n" + \
+                   f"Server:{server_name}\r\n" + \
+                   "Connection: close\r\n"
+        if self.status != 200:
+            return response.encode()
+        body = self.get_body()
+        content_length = len(body)
+        response += f"Content-Length: {content_length}\r\n" + \
                     f"Content-Type: {content_type}\r\n\r\n"
-            ).encode()
-            if self.request.method == 'GET':
-                response += body
+        response = response.encode()
+        if self.request.method == 'GET':
+            response += body
         return response
 
 
 if __name__ == '__main__':
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument("-w", "--workers_count", default=10)
-    # parser.add_argument("-r", "--root", default=DOCUMENT_ROOT)
-    # args = parser.parse_args()
-    # server = HTTPServer(HOST, PORT, args.workers_count, args.document_root)
-    server = HTTPServer(HOST, PORT, 5, DOCUMENT_ROOT)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-w", "--workers_count", type=int, default=WORKERS_COUNT)
+    parser.add_argument("-r", "--document_root", default=DOCUMENT_ROOT)
+    args = parser.parse_args()
+    server = HTTPServer(HOST, PORT, args.workers_count, args.document_root)
+    # server = HTTPServer(HOST, PORT, WORKERS_COUNT, DOCUMENT_ROOT)
     server.start()
