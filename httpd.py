@@ -7,6 +7,7 @@ import argparse
 import time
 from http import HTTPStatus
 import mimetypes
+import logging
 
 
 HOST = "0.0.0.0"
@@ -14,8 +15,8 @@ PORT = 8080
 QUEUE_SIZE = 10
 DOCUMENT_ROOT = 'root'
 DEFAULT_FILE = 'index.html'
-WORKERS_COUNT = 5
-TIMEOUT = 60
+WORKERS_COUNT = 50
+TIMEOUT = 10
 REQUEST_MAX_SIZE = 10 * 1024
 
 
@@ -27,43 +28,59 @@ class HTTPServer:
         self.document_root = document_root
 
     def get_request(self, client_socket):
-        request = b""
-        while not (b"\r\n\r\n" in request or b"\n\n" in request or len(request) > REQUEST_MAX_SIZE):
-            chunk = client_socket.recv(1024)
-            if not chunk:
-                break
-            request += chunk
+        try:
+            request = b""
+            while not (b"\r\n\r\n" in request or b"\n\n" in request or len(request) > REQUEST_MAX_SIZE):
+                chunk = client_socket.recv(1024)
+                if not chunk:
+                    break
+                request += chunk
+        except client_socket.timeout:
+            raise Exception(HTTPStatus.REQUEST_TIMEOUT)
         return request
 
     def handle_client_connection(self, client_sock):
         with client_sock:
-            request = HTTPRequest(self.get_request(client_sock))
-            response = HTTPResponse(request)
-            client_sock.sendall(response.generate_response())
+            try:
+                request = HTTPRequest(self.get_request(client_sock))
+                response = HTTPResponse(request)
+            except Exception as e:
+                logging.info(e)
+
+            try:
+                client_sock.sendall(response.generate_response())
+            except client_sock.timeout:
+                pass
 
     def wait_connection(self, sock):
         while True:
             client_sock, address = sock.accept()
             client_sock.settimeout(TIMEOUT)
-            self.handle_client_connection(client_sock)
+            try:
+                self.handle_client_connection(client_sock)
+            except Exception as e:
+                logging.info(e)
 
     def start(self):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            sock.bind((self.host, self.port))
+            try:
+                sock.bind((self.host, self.port))
+            except:
+                return
             sock.listen(QUEUE_SIZE)
             for _ in range(self.workers_count):
                 client_handler = threading.Thread(
                     target=self.wait_connection,
                     args=(sock,)
                 )
-                client_handler.setDaemon(True)
+                client_handler.daemon = True
                 client_handler.start()
                 try:
                     while True:
                         time.sleep(1)
                 except KeyboardInterrupt:
-                    print("Interrupted by user")
+                    logging.info("Interrupted by user")
                     return
 
 
@@ -149,6 +166,10 @@ class HTTPResponse:
 
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO,
+                        format='[%(asctime)s] %(levelname).1s %(message)s',
+                        datefmt='%Y.%m.%d %H:%M:%S')
+
     parser = argparse.ArgumentParser()
     parser.add_argument("-w", "--workers_count", type=int, default=WORKERS_COUNT)
     parser.add_argument("-r", "--document_root", default=DOCUMENT_ROOT)
